@@ -20,6 +20,8 @@ const authMiddleware = (req, res, next) => {
         // Attach decoded user information to request
         req.user = decoded;
 
+        console.log("Authenticated user:", req.user);
+
         // Continue to the next middleware/controller
         next();
         

@@ -1,6 +1,39 @@
 const supabase = require("../config/supabase");
 const pool = require("../config/db");
 
+const getFiles = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        const { data, error } = await supabase
+            .from("files")
+            .select("*")
+            .eq("user_id", userId)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: true });
+
+        if (error) {
+            console.error("Get files error:", error);
+
+            return res.status(500).json({
+                message: "Failed to fetch files"
+            });
+        }
+
+        return res.status(200).json({
+            message: "Files fetched successfully",
+            files: data
+        });
+
+    } catch (error) {
+        console.error("Get files server error:", error);
+
+        return res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
 const uploadFile = async (req, res) => {
     try {
         // Check if a file was uploaded
@@ -67,6 +100,169 @@ const uploadFile = async (req, res) => {
     }
 };
 
+const deleteFile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const { data, error } = await supabase
+            .from("files")
+            .update({
+                deleted_at: new Date().toISOString()
+            })
+            .eq("id", id)
+            .eq("user_id", userId)
+            .is("deleted_at", null)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Delete file error:", error);
+
+            return res.status(500).json({
+                message: "Failed to delete file"
+            });
+        }
+
+        if (!data) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: "File moved to trash successfully",
+            file: data
+        });
+
+    } catch (error) {
+        console.error("Delete file server error:", error);
+
+        return res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
+const renameFile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+        const userId = req.user.userId;
+
+        if (!name || name.trim() === "") {
+            return res.status(400).json({
+                message: "File name is required"
+            });
+        }
+
+        const { data, error } = await supabase
+            .from("files")
+            .update({
+                name: name.trim(),
+                updated_at: new Date().toISOString()
+            })
+            .eq("id", id)
+            .eq("user_id", userId)
+            .is("deleted_at", null)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Rename file error:", error);
+
+            return res.status(500).json({
+                message: "Failed to rename file"
+            });
+        }
+
+        if (!data) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: "File renamed successfully",
+            file: data
+        });
+
+    } catch (error) {
+        console.error("Rename file server error:", error);
+
+        return res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
+const updateFile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { folder_id } = req.body;
+        const userId = req.user.userId;
+
+        // If a folder is provided, verify that it belongs to the user
+        if (folder_id) {
+            const { data: folder, error: folderError } = await supabase
+                .from("folders")
+                .select("id")
+                .eq("id", folder_id)
+                .eq("user_id", userId)
+                .is("deleted_at", null)
+                .single();
+
+            if (folderError || !folder) {
+                return res.status(404).json({
+                    message: "Folder not found"
+                });
+            }
+        }
+
+        const { data, error } = await supabase
+            .from("files")
+            .update({
+                folder_id: folder_id || null,
+                updated_at: new Date().toISOString()
+            })
+            .eq("id", id)
+            .eq("user_id", userId)
+            .is("deleted_at", null)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Update file error:", error);
+
+            return res.status(500).json({
+                message: "Failed to update file"
+            });
+        }
+
+        if (!data) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: "File updated successfully",
+            file: data
+        });
+
+    } catch (error) {
+        console.error("Update file server error:", error);
+
+        return res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
 module.exports = {
-    uploadFile
+    getFiles,
+    uploadFile,
+    deleteFile,
+    renameFile,
+    updateFile
 };
