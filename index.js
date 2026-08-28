@@ -1,8 +1,9 @@
 const express = require("express");
-
 const pool = require("./server/config/db");
 const cors = require("cors");   //allow communication b/w F & B. 
 require("dotenv").config();     // to load values from .env
+const authRoutes = require("./server/routes/authRoutes");
+const fileRoutes = require("./server/routes/fileRoutes");
 
 const app = express();
 
@@ -12,10 +13,16 @@ pool.query("SELECT NOW()", (err, result) => {
   if (err) {
     console.error("Database connection failed:", err.message);
   } else {
-    console.log("VaultDrive database connected!");
+    console.log("VaultDrive database connected successfully!");
     console.log("Database time:", result.rows[0].now);
   }
 });
+
+
+// Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/files", fileRoutes);
+
 
 app.get("/", (req, res) => {
     res.json({
