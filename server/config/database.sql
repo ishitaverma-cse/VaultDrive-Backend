@@ -77,5 +77,25 @@ CREATE TABLE permissions (
         CHECK (role IN ('owner', 'viewer', 'editor')),
 
     CONSTRAINT unique_file_user_permission
-        UNIQUE (file_id, user_id)
+        UNIQUE (file_id, user_id)     
+);
+
+-- File Shares
+CREATE TABLE file_shares (
+    id BIGSERIAL PRIMARY KEY,
+    file_id BIGINT NOT NULL,
+    created_by BIGINT NOT NULL,
+    share_token TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_share_file
+        FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_share_creator
+        FOREIGN KEY (created_by)
+        REFERENCES users(id)
+        ON DELETE CASCADE
 );
