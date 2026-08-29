@@ -5,24 +5,59 @@ const getFiles = async (req, res) => {
     try {
         const userId = req.user.userId;
 
-        const { data, error } = await supabase
-            .from("files")
-            .select("*")
-            .eq("user_id", userId)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: true });
+        // Get pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
 
-        if (error) {
-            console.error("Get files error:", error);
-
-            return res.status(500).json({
-                message: "Failed to fetch files"
+        // Validate pagination parameters
+        if (page < 1 || limit < 1) {
+            return res.status(400).json({
+                message: "Page and limit must be positive numbers"
             });
         }
 
+        // Calculate how many records to skip
+        const offset = (page - 1) * limit;
+
+        // Fetch paginated files
+        const filesResult = await pool.query(
+            `
+            SELECT *
+            FROM files
+            WHERE user_id = $1
+              AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT $2
+            OFFSET $3
+            `,
+            [userId, limit, offset]
+        );
+
+        // Get total number of files
+        const countResult = await pool.query(
+            `
+            SELECT COUNT(*)
+            FROM files
+            WHERE user_id = $1
+              AND deleted_at IS NULL
+            `,
+            [userId]
+        );
+
+        const total = parseInt(countResult.rows[0].count);
+        const totalPages = Math.ceil(total / limit);
+
         return res.status(200).json({
             message: "Files fetched successfully",
-            files: data
+            files: filesResult.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1
+            }
         });
 
     } catch (error) {
@@ -259,10 +294,52 @@ const updateFile = async (req, res) => {
     }
 };
 
+const searchFiles = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { q } = req.query;
+
+        if (!q || q.trim() === "") {
+            return res.status(400).json({
+                message: "Search query is required"
+            });
+        }
+
+        const result = await pool.query(
+            `
+            SELECT *
+            FROM files
+            WHERE user_id = $1
+              AND deleted_at IS NULL
+              AND to_tsvector(
+                    'english',
+                    coalesce(name, '') || ' ' || coalesce(original_name, '')
+                  )
+                  @@ plainto_tsquery('english', $2)
+            ORDER BY created_at DESC
+            `,
+            [userId, q.trim()]
+        );
+
+        return res.status(200).json({
+            message: "Files searched successfully",
+            files: result.rows
+        });
+
+    } catch (error) {
+        console.error("Search files error:", error);
+
+        return res.status(500).json({
+            message: "Failed to search files"
+        });
+    }
+};
+
 module.exports = {
     getFiles,
     uploadFile,
     deleteFile,
     renameFile,
-    updateFile
+    updateFile,
+    searchFiles
 };
