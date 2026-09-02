@@ -4,8 +4,14 @@ const pool = require("../config/db");
 const setPermission = async (req, res) => {
     try {
         const { fileId } = req.params;
-        const { userId, role } = req.body;
+        const { email, role } = req.body;
         const ownerId = req.user.userId;
+
+        if (!email) {
+            return res.status(400).json({
+                message: "User email is required"
+            });
+        }
 
         // Validate role
         if (!["viewer", "editor"].includes(role)) {
@@ -30,12 +36,12 @@ const setPermission = async (req, res) => {
             });
         }
 
-        // Check whether the target user exists
+        // Check whether the target user exists by email
         const userResult = await pool.query(
             `SELECT id
-             FROM users
-             WHERE id = $1`,
-            [userId]
+            FROM users
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))`,
+            [email]
         );
 
         if (userResult.rows.length === 0) {
@@ -44,8 +50,10 @@ const setPermission = async (req, res) => {
             });
         }
 
+        const targetUserId = userResult.rows[0].id;
+
         // Prevent owner from assigning another role to themselves
-        if (String(userId) === String(ownerId)) {
+        if (String(targetUserId) === String(ownerId)) {
             return res.status(400).json({
                 message: "The file owner already has owner permission"
             });
@@ -58,7 +66,7 @@ const setPermission = async (req, res) => {
              ON CONFLICT (file_id, user_id)
              DO UPDATE SET role = EXCLUDED.role
              RETURNING id, file_id, user_id, role, created_at`,
-            [fileId, userId, role]
+            [fileId, targetUserId, role]
         );
 
         res.status(200).json({

@@ -106,15 +106,9 @@ const accessSharedFile = async (req, res) => {
             });
         }
 
-        res.status(200).json({
-            message: "Shared file accessed successfully",
-            file: {
-                id: share.file_id,
-                name: share.name
-            },
-            signed_url: data.signedUrl,
-            expires_in: 3600
-        });
+        console.log("REDIRECTING TO:", data.signedUrl);
+
+        return res.redirect(data.signedUrl);
 
     } catch (error) {
         console.error("Access shared file error:", error);
