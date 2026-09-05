@@ -120,6 +120,23 @@ const uploadFile = async (req, res) => {
             ]
         );
 
+        // Create the first version of the file
+        await pool.query(
+            `
+            INSERT INTO file_versions
+            (file_id, version_number, name, storage_path, size, mime_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            `,
+            [
+                result.rows[0].id,
+                1,
+                file.originalname,
+                filePath,
+                file.size,
+                file.mimetype
+            ]
+        );
+
         // Send successful response
         return res.status(201).json({
             message: "File uploaded successfully",
@@ -175,6 +192,191 @@ const deleteFile = async (req, res) => {
 
         return res.status(500).json({
             message: "Server error"
+        });
+    }
+};
+
+const createFileVersion = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        if (!req.file) {
+            return res.status(400).json({
+                message: "No file uploaded"
+            });
+        }
+
+        const file = req.file;
+
+        // Check that the file belongs to the logged-in user
+        const fileResult = await pool.query(
+            `
+            SELECT *
+            FROM files
+            WHERE id = $1
+              AND user_id = $2
+              AND deleted_at IS NULL
+            `,
+            [id, userId]
+        );
+
+        if (fileResult.rows.length === 0) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        const existingFile = fileResult.rows[0];
+
+        // Get the latest version number
+        const versionResult = await pool.query(
+            `
+            SELECT COALESCE(MAX(version_number), 0) AS latest_version
+            FROM file_versions
+            WHERE file_id = $1
+            `,
+            [id]
+        );
+
+        const nextVersion =
+            parseInt(versionResult.rows[0].latest_version) + 1;
+
+        // Create a new storage path for this version
+        const filePath = `${userId}/${Date.now()}-${file.originalname}`;
+
+        // Upload new version to Supabase Storage
+        const { error: storageError } = await supabase.storage
+            .from("vaultdrive-files")
+            .upload(filePath, file.buffer, {
+                contentType: file.mimetype,
+                upsert: false
+            });
+
+        if (storageError) {
+            console.error("Version storage error:", storageError);
+
+            return res.status(500).json({
+                message: "File version upload failed"
+            });
+        }
+
+        // Save the new version
+        await pool.query(
+            `
+            INSERT INTO file_versions
+            (file_id, version_number, name, storage_path, size, mime_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            `,
+            [
+                id,
+                nextVersion,
+                file.originalname,
+                filePath,
+                file.size,
+                file.mimetype
+            ]
+        );
+
+        // Update the current file record
+        const updatedFile = await pool.query(
+            `
+            UPDATE files
+            SET
+                name = $1,
+                original_name = $2,
+                size = $3,
+                mime_type = $4,
+                storage_path = $5,
+                updated_at = NOW()
+                WHERE id = $6
+                AND user_id = $7
+                AND deleted_at IS NULL
+               RETURNING *
+            `,
+            [
+                file.originalname,
+                file.originalname,
+                file.size,
+                file.mimetype,
+                filePath,
+                id,
+                userId
+            ]
+        );
+
+        return res.status(200).json({
+            message: "New file version created successfully",
+            version: {
+                version_number: nextVersion,
+                file_id: id,
+                name: file.originalname,
+                storage_path: filePath,
+                size: file.size,
+                mime_type: file.mimetype
+            },
+            file: updatedFile.rows[0]
+        });
+
+    } catch (error) {
+        console.error("Create file version error:", error);
+
+        return res.status(500).json({
+            message: "Failed to create file version"
+        });
+    }
+};
+
+const getFileVersions = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        // Verify that the file belongs to the logged-in user
+        const fileResult = await pool.query(
+            `
+            SELECT id
+            FROM files
+            WHERE id = $1
+              AND user_id = $2
+            `,
+            [id, userId]
+        );
+
+        if (fileResult.rows.length === 0) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        const result = await pool.query(
+            `
+            SELECT
+                id,
+                file_id,
+                version_number,
+                name,
+                storage_path,
+                size,
+                mime_type,
+                created_at
+            FROM file_versions
+            WHERE file_id = $1
+            ORDER BY version_number DESC
+            `,
+            [id]
+        );
+
+        return res.status(200).json({
+            message: "File versions fetched successfully",
+            versions: result.rows
+        });
+
+    } catch (error) {
+        console.error("Get file versions error:", error);
+
+        return res.status(500).json({
+            message: "Failed to fetch file versions"
         });
     }
 };
@@ -335,11 +537,86 @@ const searchFiles = async (req, res) => {
     }
 };
 
+const toggleStarFile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        const result = await pool.query(
+            `
+            UPDATE files
+            SET starred = NOT starred
+            WHERE id = $1
+              AND user_id = $2
+              AND deleted_at IS NULL
+            RETURNING *
+            `,
+            [id, userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                message: "File not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: result.rows[0].starred
+                ? "File starred successfully"
+                : "File unstarred successfully",
+            file: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error("Toggle star error:", error);
+
+        return res.status(500).json({
+            message: "Failed to update starred status"
+        });
+    }
+};
+
+const getStarredFiles = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        const result = await pool.query(
+            `
+            SELECT *
+            FROM files
+            WHERE user_id = $1
+              AND starred = TRUE
+              AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            `,
+            [userId]
+        );
+
+        return res.status(200).json({
+            message: "Starred files fetched successfully",
+            files: result.rows
+        });
+
+    } catch (error) {
+        console.error("Get starred files error:", error);
+
+        return res.status(500).json({
+            message: "Failed to fetch starred files"
+        });
+    }
+};
+
+
+
 module.exports = {
     getFiles,
     uploadFile,
+    createFileVersion,
+    getFileVersions,
     deleteFile,
     renameFile,
     updateFile,
-    searchFiles
+    searchFiles,
+    toggleStarFile,
+    getStarredFiles
 };

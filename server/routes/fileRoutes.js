@@ -1,12 +1,13 @@
 const express = require("express");
 
-const { getFiles, uploadFile, deleteFile, renameFile, updateFile, searchFiles } = require("../controllers/fileController");
+const { getFiles, uploadFile, createFileVersion, getFileVersions, deleteFile, renameFile, updateFile, searchFiles, toggleStarFile, getStarredFiles } = require("../controllers/fileController");
 
 const authMiddleware = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
+router.get("/starred", authMiddleware, getStarredFiles);
 router.get("/", authMiddleware, getFiles);
 router.post(
     "/upload",
@@ -14,9 +15,21 @@ router.post(
     upload.single("file"),
     uploadFile
 );
+router.post(
+    "/:id/version",
+    authMiddleware,
+    upload.single("file"),
+    createFileVersion
+);
+router.get(
+    "/:id/versions",
+    authMiddleware,
+    getFileVersions
+);
 router.post("/:id/delete", authMiddleware, deleteFile);
 router.post("/:id/rename", authMiddleware, renameFile);
 router.post("/:id/update", authMiddleware, updateFile);
 router.get("/search", authMiddleware, searchFiles);
+router.post("/:id/star", authMiddleware, toggleStarFile);
 
 module.exports = router;

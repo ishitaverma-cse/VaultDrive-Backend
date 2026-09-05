@@ -74,6 +74,7 @@ const getFolders = async (req, res) => {
             .from("folders")
             .select("*")
             .eq("user_id", userId)
+            .is("deleted_at", null)
             .order("created_at", { ascending: true });
 
         if (error) {

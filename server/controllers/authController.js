@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const db = require("../config/db");
 const jwt = require("jsonwebtoken");
+const supabase = require("../config/supabase");
 
 const registerUser = async (req, res) => {
     try {
@@ -118,7 +119,88 @@ const loginUser = async (req, res) => {
     }
 };
 
+const googleLogin = async (req, res) => {
+    try {
+        const { access_token } = req.body;
+
+        if (!access_token) {
+            return res.status(400).json({
+                message: "Google access token is required"
+            });
+        }
+
+        const {
+            data: { user },
+            error
+        } = await supabase.auth.getUser(access_token);
+
+        if (error || !user) {
+            return res.status(401).json({
+                message: "Invalid Google authentication"
+            });
+        }
+
+        const email = user.email;
+        const name =
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            email.split("@")[0];
+
+        // Check if VaultDrive user already exists
+        let result = await db.query(
+            "SELECT id, name, email FROM users WHERE email = $1",
+            [email]
+        );
+
+        let vaultUser;
+
+        if (result.rows.length === 0) {
+            // Create a new VaultDrive user for the Google account
+            result = await db.query(
+                `INSERT INTO users (name, email, password)
+                 VALUES ($1, $2, NULL)
+                 RETURNING id, name, email`,
+                [name, email]
+            );
+
+            vaultUser = result.rows[0];
+        } else {
+            vaultUser = result.rows[0];
+        }
+
+        // Issue the same JWT used by normal email/password login
+        const token = jwt.sign(
+            {
+                userId: vaultUser.id,
+                email: vaultUser.email
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "1d"
+            }
+        );
+
+        return res.status(200).json({
+            message: "Google login successful",
+            token,
+            user: {
+                id: vaultUser.id,
+                name: vaultUser.name,
+                email: vaultUser.email
+            }
+        });
+
+    } catch (error) {
+        console.error("Google login error:", error);
+
+        return res.status(500).json({
+            message: "Google login failed"
+        });
+    }
+};
+
 module.exports = {
     registerUser,
-    loginUser
+    loginUser,
+    googleLogin
 };
